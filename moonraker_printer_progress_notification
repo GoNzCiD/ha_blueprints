@@ -1,5 +1,5 @@
 blueprint:
-  name: Notificación de Progreso de Impresora Elegoo (v8 - Español Fijo)
+  name: Notificación de Progreso de Impresora Elegoo via Moonraker
   description: Envía notificaciones enriquecidas sobre el progreso de la impresora, cambios de estado y errores críticos. Formato corregido y fallos de capas solucionados.
   author: Daniel Cherubini (Traducido y Fijo)
   homeassistant:
