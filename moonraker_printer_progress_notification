@@ -1,7 +1,7 @@
 blueprint:
-  name: Notificación de Progreso de Impresora Elegoo usando Moonraker
-  description: Envía notificaciones enriquecidas sobre el progreso de la impresora, cambios de estado y estados de error críticos.
-  author: Daniel Cherubini (Traducido al Español y adaptado a Moonraker)
+  name: Notificación de Progreso de Impresora Elegoo (v8 - Español Corrección Capas)
+  description: Envía notificaciones enriquecidas sobre el progreso de la impresora, cambios de estado y errores críticos. Incluye cálculo matemático de respaldo para capas totales.
+  author: Daniel Cherubini (Traducido y Corregido)
   homeassistant:
     min_version: 2024.6.0
   domain: automation
@@ -70,7 +70,7 @@ blueprint:
       default: ""
     enable_status_notifications:
       name: Habilitar notificaciones de cambio de estado
-      description: Enviar notificaciones cuando cambie el estado de la impresora (ej. homing, calentando, etc.)
+      description: Enviar notifications cuando cambie el estado de la impresora (ej. homing, calentando, etc.)
       default: true
       selector:
         boolean:
@@ -88,24 +88,25 @@ variables:
   print_status_entity: !input print_status_entity
   current_status_entity: !input current_status_entity
   error_status_reason_entity: !input error_status_reason_entity
-  # Obtener el ID del dispositivo a través de la entidad de porcentaje
+  # Obtener el ID del dispositivo a través de la entidad de progreso
   printer_device: >-
     {{ device_id(percent_complete_entity) }}
   notification_group: >-
     {{ device_attr(printer_device, 'name') | slugify }}
   # Auto-detección de entidades secundarias del mismo dispositivo
   end_time_entity: >-
-    {{ device_entities(printer_device) | select('search', '_end_time') |
-    first }}
+    {{ device_entities(printer_device) | select('search', '_end_time') | first }}
   file_name_entity: >-
-    {{ device_entities(printer_device) | select('search', '_file_name') |
-    first }}
+    {{ device_entities(printer_device) | select('search', '_file_name') | first }}
   current_layer_entity: >-
-    {{ device_entities(printer_device) | select('search', '_current_layer') |
-    first }}
+    {{ device_entities(printer_device) | select('search', '_current_layer') | first }}
   total_layers_entity: >-
-    {{ device_entities(printer_device) | select('search', '_total_layers') |
-    first }}
+    {{ device_entities(printer_device) | select('search', '_total_layers') | first }}
+  # Respaldos para el cálculo matemático inteligente de capas si falla el sensor principal
+  object_height_entity: >-
+    {{ device_entities(printer_device) | select('search', '_print_object_height') | first }}
+  layer_height_entity: >-
+    {{ device_entities(printer_device) | select('search', '_layer_height') | first }}
   camera_entity: >-
     {{ (camera_entity_input
         if camera_entity_input != ''
@@ -147,7 +148,23 @@ action:
           - device_id: !input notify_device
             domain: mobile_app
             type: notify
-            title: "Imprimiendo: {{ states(percent_complete_entity) | int(0) }}%\nCapa: {{ (states(current_layer_entity)|default('?', true)) }}/{{ (states(total_layers_entity)|default('?', true)) }}"
+            title: >-
+              {% set capa_actual = states(current_layer_entity) | default('?', true) %}
+              {% set capa_total_sensor = states(total_layers_entity) %}
+              
+              {% if capa_total_sensor not in ['unknown', 'unavailable', 'none'] and capa_total_sensor | int(0) > 0 %}
+                {% set capas_totales = capa_total_sensor | int %}
+              {% else %}
+                {% set altura_total = states(object_height_entity) | float(0) %}
+                {% set altura_capa = states(layer_height_entity) | float(0) %}
+                {% if altura_capa > 0 and altura_total > 0 %}
+                  {% set capas_totales = (altura_total / altura_capa) | round(0) %}
+                {% else %}
+                  {% set capas_totales = "desconocido" %}
+                {% endif %}
+              {% endif %}
+              Imprimiendo: {{ states(percent_complete_entity) | int(0) }}%
+              Capa: {{ capa_actual }}/{{ capas_totales }}
             message: "{{ states(file_name_entity)|default('Archivo desconocido', true) }}"
             data:
               chronometer: true
@@ -294,7 +311,7 @@ action:
               push:
                 interruption-level: passive
 
-      # --- GESTIÓN DE ERRORES CRÍTICOS DE LA IMPRESORA ---
+      # --- GESTIÓN DE ERRORES CRÍCITOS DE LA IMPRESORA ---
       - conditions:
           - condition: template
             value_template: "{{ trigger.entity_id == error_status_reason_entity }}"
