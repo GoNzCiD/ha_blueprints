@@ -1,25 +1,23 @@
 blueprint:
-  name: Notificación de Progreso de Impresora Elegoo via Moonraker
-  description: Envía notificaciones enriquecidas sobre el progreso de la impresora, cambios de estado y errores críticos. Formato corregido y fallos de capas solucionados.
-  author: Daniel Cherubini (Traducido y Fijo)
+  name: Notificación de Progreso de Impresora Elegoo
+  description: Envía notificaciones enriquecidas sobre el progreso de la impresora, cambios de estado y errores críticos. Filtra decimales del progreso y corrige el salto de línea y cálculo de capas totales.
+  author: Daniel Cherubini (Traducido y Corregido de forma Definitiva)
   homeassistant:
     min_version: 2024.6.0
   domain: automation
   input:
     percent_complete_entity:
       name: Entidad de porcentaje completado
-      description: El sensor de porcentaje completado de la impresora Elegoo (busca entidades que terminen en '_percent_complete').
+      description: El sensor de porcentaje completado de la impresora Elegoo (busca entidades que terminen en '_percent_complete' o '_progress').
       selector:
         entity:
           domain: sensor
-          integration: elegoo_printer
     print_status_entity:
       name: Entidad de estado de impresión
       description: El sensor de estado de la impresión (debería terminar en '_print_status').
       selector:
         entity:
           domain: sensor
-          integration: elegoo_printer
           device_class: enum
     current_status_entity:
       name: Entidad de estado actual
@@ -27,7 +25,6 @@ blueprint:
       selector:
         entity:
           domain: sensor
-          integration: elegoo_printer
           device_class: enum
     error_status_reason_entity:
       name: Entidad de razón del error
@@ -35,7 +32,6 @@ blueprint:
       selector:
         entity:
           domain: sensor
-          integration: elegoo_printer
           device_class: enum
     notify_device:
       name: Dispositivo de notificación
@@ -46,9 +42,9 @@ blueprint:
     percent_every:
       name: Frecuencia de notificación de progreso
       description: >-
-        Envía una notificación de progreso cada N por ciento completado.
+        Envía una notificación de progreso cada N por ciento completado de forma entera.
         10 notificará al 10%, 20%, 30%…100% (por defecto). 1 = cada 1%.
-      default: "10"
+      default: "1"
       selector:
         select:
           options:
@@ -70,7 +66,7 @@ blueprint:
       default: ""
     enable_status_notifications:
       name: Habilitar notificaciones de cambio de estado
-      description: Enviar notifications cuando cambie el estado de la impresora (ej. homing, calentando, etc.)
+      description: Enviar notificaciones cuando cambie el estado de la impresora (ej. homing, calentando, etc.)
       default: true
       selector:
         boolean:
@@ -88,10 +84,12 @@ variables:
   print_status_entity: !input print_status_entity
   current_status_entity: !input current_status_entity
   error_status_reason_entity: !input error_status_reason_entity
+  
   printer_device: >-
     {{ device_id(percent_complete_entity) }}
   notification_group: >-
     {{ device_attr(printer_device, 'name') | slugify }}
+    
   end_time_entity: >-
     {{ device_entities(printer_device) | select('search', '_end_time') | first }}
   file_name_entity: >-
@@ -100,6 +98,10 @@ variables:
     {{ device_entities(printer_device) | select('search', '_current_layer') | first }}
   total_layers_entity: >-
     {{ device_entities(printer_device) | select('search', '_total_layers') | first }}
+  object_height_entity: >-
+    {{ device_entities(printer_device) | select('search', '_print_object_height') | first }}
+  layer_height_entity: >-
+    {{ device_entities(printer_device) | select('search', '_layer_height') | first }}
   camera_entity: >-
     {{ (camera_entity_input
         if camera_entity_input != ''
@@ -120,18 +122,21 @@ condition: []
 
 action:
   - choose:
-      # --- NOTIFICACIÓN DE PROGRESO DE IMPRESIÓN (Cada X%) ---
+      # --- NOTIFICACIÓN DE PROGRESO DE IMPRESIÓN (Filtro de enteros de 1 en 1 %) ---
       - conditions:
           - condition: template
             value_template: "{{ trigger.entity_id == percent_complete_entity }}"
           - condition: template
             value_template: "{{ states(percent_complete_entity) not in ['unknown', 'unavailable'] }}"
           - condition: template
-            value_template: "{{ states(percent_complete_entity) | int(0) < 100 }}"
+            value_template: >-
+              {% set actual_entero = trigger.to_state.state | float(0) | int(0) %}
+              {% set anterior_entero = trigger.from_state.state | float(0) | int(0) %}
+              {{ actual_entero != anterior_entero and actual_entero < 100 }}
           - condition: template
             value_template: >-
-              {{ states(percent_complete_entity) | int(0) > 0
-                 and states(percent_complete_entity) | int(0) % (percent_every | int) == 0 }}
+              {% set actual_entero = trigger.to_state.state | float(0) | int(0) %}
+              {{ actual_entero > 0 and actual_entero % (percent_every | int) == 0 }}
           - condition: template
             value_template: >-
               {{ print_status_entity != none and states(print_status_entity) == 'printing' }}
@@ -141,21 +146,17 @@ action:
           - device_id: !input notify_device
             domain: mobile_app
             type: notify
-            title: "Imprimiendo: {{ states(percent_complete_entity) | int(0) }}%"
+            title: "Imprimimiendo: {{ trigger.to_state.state | float(0) | int(0) }}%"
             message: >-
               {% set capa_actual = states(current_layer_entity) | default('?', true) %}
               {% set capa_total_sensor = states(total_layers_entity) %}
-              {% set listado_entidades = device_entities(printer_device) %}
-              
               {% if capa_total_sensor not in ['unknown', 'unavailable', 'none'] and capa_total_sensor | int(0) > 0 %}
                 {% set capas_totales = capa_total_sensor | int %}
               {% else %}
-                {% set ent_altura_total = listado_entidades | select('search', '_print_object_height') | first %}
-                {% set ent_altura_capa = listado_entidades | select('search', '_layer_height') | first %}
-                {% set altura_total = states(ent_altura_total) | float(0) if ent_altura_total else 0 %}
-                {% set altura_capa = states(ent_altura_capa) | float(0) if ent_altura_capa else 0 %}
+                {% set altura_total = states(object_height_entity) | float(0) %}
+                {% set altura_capa = states(layer_height_entity) | float(0) %}
                 {% if altura_capa > 0 and altura_total > 0 %}
-                  {% set capas_totales = (altura_total / altura_capa) | round(0) | int %}
+                  {% set capas_totales = (altura_total / altura_capa) | round(0) %}
                 {% else %}
                   {% set capas_totales = "desconocido" %}
                 {% endif %}
@@ -164,7 +165,7 @@ action:
             data:
               chronometer: true
               when: "{{ as_timestamp(states(end_time_entity))|int if end_time_entity != none and states(end_time_entity) not in ['unknown', 'unavailable'] else 0 }}"
-              progress: "{{ states(percent_complete_entity)|int(0) }}"
+              progress: "{{ trigger.to_state.state | float(0) | int(0) }}"
               progress_max: 100
               image: "{{ ('/api/camera_proxy/' ~ camera_entity) if (camera_entity|default('', true)) != '' else '' }}"
               url: "{{ dashboard_url }}"
@@ -306,7 +307,7 @@ action:
               push:
                 interruption-level: passive
 
-      # --- GESTIÓN DE ERRORES CRÍCITOS DE LA IMPRESORA ---
+      # --- GESTIÓN DE ERRORES CRÍTICOS DE LA IMPRESORA ---
       - conditions:
           - condition: template
             value_template: "{{ trigger.entity_id == error_status_reason_entity }}"
