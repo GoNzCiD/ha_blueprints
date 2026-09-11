@@ -1,359 +1,189 @@
 blueprint:
-  name: Elegoo Printer Progress Notification (v8)
-  description: Sends notifications for printer progress, status changes, and error states.
-  author: Daniel Cherubini
-  homeassistant:
-    min_version: 2024.6.0
+  name: Notificación de Progreso de Impresora Moonraker
+  description: Envía notificaciones enriquecidas con imagen de cámara en español sobre el progreso de tu impresora 3D. Incluye corrección inteligente de capas.
   domain: automation
   input:
-    percent_complete_entity:
-      name: Percent Complete Entity
-      description: The percent complete sensor for the Elegoo printer (look for entities ending in '_percent_complete').
-      selector:
-        entity:
-          domain: sensor
-          integration: elegoo_printer
-    print_status_entity:
-      name: Print Status Entity
-      description: The print status sensor (should end with '_print_status').
-      selector:
-        entity:
-          domain: sensor
-          integration: elegoo_printer
-          device_class: enum
-    current_status_entity:
-      name: Current Status Entity
-      description: The current status sensor (should end with '_current_status').
-      selector:
-        entity:
-          domain: sensor
-          integration: elegoo_printer
-          device_class: enum
-    error_status_reason_entity:
-      name: Error Status Reason Entity
-      description: The error status reason sensor (should end with '_current_print_error_status_reason').
-      selector:
-        entity:
-          domain: sensor
-          integration: elegoo_printer
-          device_class: enum
     notify_device:
-      name: Notification Device
-      description: The device to send notifications to.
+      name: Dispositivo de notificación
+      description: El dispositivo que recibirá las notificaciones (ej. Tu teléfono).
       selector:
         device:
           integration: mobile_app
-    percent_every:
-      name: Progress Notification Frequency
-      description: >-
-        Send a progress notification every N percent of completion.
-        10 notifies at 10%, 20%, 30%…100% (default). 1 = every percent.
-      default: "10"
+    percent_complete_entity:
+      name: Sensor de progreso
+      description: Entidad que mide el progreso en porcentaje.
       selector:
-        select:
-          options:
-            - "1"
-            - "2"
-            - "5"
-            - "10"
-            - "20"
+        entity:
+          domain: sensor
+    percent_every:
+      name: Frecuencia de porcentaje
+      description: Notificar cada X por ciento de progreso.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 50
+          unit_of_measurement: "%"
     camera_entity:
-      name: Printer Camera (Optional)
-      description: Override the default camera entity for the printer. Leave blank to use the default camera from the printer device.
-      default: ""
+      name: Cámara web de la impresora
+      description: Entidad de la cámara para capturar la imagen actual de la impresión.
       selector:
         entity:
           domain: camera
-    dashboard_url:
-      name: Dashboard URL (Optional)
-      description: The path to open when the notification is clicked (e.g., '/dashboard-example/example', not the full URL).
-      default: ""
+    print_status_entity:
+      name: Sensor de estado de impresión
+      description: Entidad que reporta si la máquina está imprimiendo, pausada, etc.
+      selector:
+        entity:
+          domain: sensor
+    current_status_entity:
+      name: Sensor de estado actual de la impresora
+      description: Estado general (ej. operational, printing).
+      selector:
+        entity:
+          domain: sensor
+    error_status_reason_entity:
+      name: Sensor de mensaje de error
+      description: Muestra la razón si ocurre un error.
+      selector:
+        entity:
+          domain: sensor
+    percentage_divisor:
+      name: Divisor de porcentaje
+      description: Configurar si tu sensor de progreso va de 0-100 (poner 1) o de 0-1 (poner 100).
+      default: "1"
     enable_status_notifications:
-      name: Enable Status Change Notifications
-      description: Send notifications when printer status changes (e.g., homing, heating, etc.)
+      name: Habilitar notificaciones de estado
+      description: Enviar alertas al iniciar, pausar, cancelar o terminar la impresión.
       default: true
       selector:
-        boolean:
+        boolean: {}
+    current_layer_entity:
+      name: Sensor de capa actual (Opcional)
+      description: Sensor que indica el número de la capa actual.
+      default: sensor.centauri_carbon_current_layer
+      selector:
+        entity:
+          domain: sensor
+    total_layer_entity:
+      name: Sensor de capas totales (Opcional)
+      description: Sensor principal que indica las capas totales del archivo.
+      default: sensor.centauri_carbon_total_layer
+      selector:
+        entity:
+          domain: sensor
+    object_height_entity:
+      name: Sensor de altura total del objeto (Opcional)
+      description: Respaldo para medir la altura total en mm del objeto.
+      default: sensor.centauri_carbon_print_object_height
+      selector:
+        entity:
+          domain: sensor
+    layer_height_entity:
+      name: Sensor de grosor de capa (Opcional)
+      description: Respaldo que lee la altura de cada capa individual en mm.
+      default: sensor.centauri_carbon_layer_height
+      selector:
+        entity:
+          domain: sensor
+    dashboard_url:
+      name: URL del panel de control
+      description: Ruta de Lovelace a la que redirigirá al pulsar la notificación.
+      default: /lovelace/centauri-carbon
 
-mode: single
-max_exceeded: silent
-
-variables:
-  percent_complete_entity: !input percent_complete_entity
-  notify_device: !input notify_device
-  percent_every: !input percent_every
-  camera_entity_input: !input camera_entity
-  dashboard_url: !input dashboard_url
-  enable_status_notifications: !input enable_status_notifications
-  print_status_entity: !input print_status_entity
-  current_status_entity: !input current_status_entity
-  error_status_reason_entity: !input error_status_reason_entity
-  # Get the device from the percent complete entity
-  printer_device: >-
-    {{ device_id(percent_complete_entity) }}
-  notification_group: >-
-    {{ device_attr(printer_device, 'name') | slugify }}
-  # Get other entities from the same device
-  end_time_entity: >-
-    {{ device_entities(printer_device) | select('search', '_end_time') |
-    first }}
-  file_name_entity: >-
-    {{ device_entities(printer_device) | select('search', '_file_name') |
-    first }}
-  current_layer_entity: >-
-    {{ device_entities(printer_device) | select('search', '_current_layer') |
-    first }}
-  total_layers_entity: >-
-    {{ device_entities(printer_device) | select('search', '_total_layers') |
-    first }}
-  camera_entity: >-
-    {{ (camera_entity_input
-        if camera_entity_input != ''
-        else (device_entities(printer_device) | select('match', '^camera\.') | first))
-       | default('', true) }}
-
-triggers:
-  - trigger: state
+trigger:
+  - platform: state
     entity_id: !input percent_complete_entity
-  - trigger: state
+    id: progress_changed
+  - platform: state
     entity_id: !input print_status_entity
-  - trigger: state
-    entity_id: !input current_status_entity
-  - trigger: state
-    entity_id: !input error_status_reason_entity
+    id: status_changed
 
 condition: []
 
 action:
+  - variables:
+      layer_current_ent: !input current_layer_entity
+      layer_total_ent: !input total_layer_entity
+      obj_height_ent: !input object_height_entity
+      lay_height_ent: !input layer_height_entity
+      status_entity: !input print_status_entity
+      enable_status: !input enable_status_notifications
+
   - choose:
-      # Handle print progress notifications (triggered by percent_complete_entity changes)
+      # --- TRIGGER DE PROGRESO (CADA X%) ---
       - conditions:
           - condition: template
-            value_template: "{{ trigger.entity_id == percent_complete_entity }}"
-          - condition: template
-            value_template: "{{ states(percent_complete_entity) not in ['unknown', 'unavailable'] }}"
-          - condition: template
-            value_template: "{{ states(percent_complete_entity) | int(0) < 100 }}"
+            value_template: "{{ trigger.id == 'progress_changed' }}"
           - condition: template
             value_template: >-
-              {{ states(percent_complete_entity) | int(0) > 0
-                 and states(percent_complete_entity) | int(0) % (percent_every | int) == 0 }}
-          - condition: template
-            value_template: >-
-              {{ print_status_entity != none and states(print_status_entity) == 'printing' }}
-          - condition: template
-            value_template: "{{ notify_device != '' }}"
-        sequence:
-          - device_id: !input notify_device
-            domain: mobile_app
-            type: notify
-            title: "Printing: {{ states(percent_complete_entity) | int(0) }}%\nLayer: {{ (states(current_layer_entity)|default('?', true)) }}/{{ (states(total_layers_entity)|default('?', true)) }}"
-            message: "{{ states(file_name_entity)|default('Unknown file', true) }}"
-            data:
-              chronometer: true
-              when: "{{ as_timestamp(states(end_time_entity))|int if end_time_entity != none and states(end_time_entity) not in ['unknown', 'unavailable'] else 0 }}"
-              progress: "{{ states(percent_complete_entity)|int(0) }}"
-              progress_max: 100
-              image: "{{ ('/api/camera_proxy/' ~ camera_entity) if (camera_entity|default('', true)) != '' else '' }}"
-              url: "{{ dashboard_url }}"
-              clickAction: "{{ dashboard_url }}"
-              group: "{{ notification_group }}"
-              channel: "{{ notification_group }}"
-              tag: "{{ notification_group }}"
-              alert_once: true
-              sticky: true
-              push:
-                interruption-level: passive
-
-      # Handle print completion (triggered by print_status changes to complete OR percent_complete changes)
-      - conditions:
-          - condition: template
-            value_template: "{{ notify_device != '' }}"
-          - condition: template
-            value_template: "{{ states(print_status_entity) == 'complete' }}"
-          - condition: or
-            conditions:
-              - condition: and
-                conditions:
-                  - condition: template
-                    value_template: "{{ trigger.entity_id == print_status_entity }}"
-                  - condition: template
-                    value_template: "{{ trigger.from_state.state != 'complete' }}"
-              - condition: and
-                conditions:
-                  - condition: template
-                    value_template: "{{ trigger.entity_id == percent_complete_entity }}"
-        sequence:
-          - device_id: !input notify_device
-            domain: mobile_app
-            type: notify
-            title: "🎉 Print Complete!"
-            message: "Print has finished successfully"
-            data:
-              image: "{{ ('/api/camera_proxy/' ~ camera_entity) if (camera_entity|default('', true)) != '' else '' }}"
-              url: "{{ dashboard_url }}"
-              clickAction: "{{ dashboard_url }}"
-              group: "{{ notification_group }}"
-              channel: "{{ notification_group }}"
-              tag: "{{ notification_group }}"
-              sticky: true
-              alert_once: true
-              push:
-                interruption-level: time-sensitive
-
-      # Handle print status change notifications
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.entity_id == print_status_entity }}"
-          - condition: template
-            value_template: "{{ notify_device != '' }}"
-          - condition: template
-            value_template: "{{ enable_status_notifications }}"
-          - condition: template
-            value_template: >-
-              {{ states(print_status_entity) not in ['complete', 'stopped', 'stopping', 'idle', 'unknown', 'unavailable'] }}
-        sequence:
-          - device_id: !input notify_device
-            domain: mobile_app
-            type: notify
-            title: "Printer Status Update"
-            message: >-
-              {% set status = states(print_status_entity) %}
-              {% set file_name = states(file_name_entity)|default('Unknown file', true) %}
-              {% if status == 'homing' %}
-                🏠 Printer is homing
-              {% elif status == 'printing' %}
-                🖨️ Started printing: {{ file_name }}
-              {% elif status == 'paused' or status == 'pausing' %}
-                ⏸️ Print paused: {{ file_name }}
-              {% elif status == 'loading' %}
-                📥 Loading filament
-              {% elif status == 'dropping' %}
-                🔽 Platform dropping
-              {% elif status == 'lifting' %}
-                🔼 Platform lifting
-              {% elif status == 'file_checking' %}
-                📁 Checking print file
-              {% elif status == 'recovery' or status == 'printing_recovery' %}
-                🔄 Print recovery in progress
-              {% elif status == 'preheating' %}
-                🔥 Preheating for print
-              {% elif status == 'leveling' %}
-                📐 Bed leveling in progress
+              {% set divisor = states_trigger.input_percent_every | default(5) | int %}
+              {% set progreso = (trigger.to_state.state | float(0) * (states_trigger.input_percentage_divisor | float(1))) | int %}
+              {{ progreso % divisor == 0 and progreso > 0 and progreso -
+              {% set capa_actual = states(layer_current_ent) | int(0) %}
+              {% set capa_total_sensor = states(layer_total_ent) %}
+              
+              {% if capa_total_sensor not in ['unknown', 'unavailable', 'none'] and capa_total_sensor | int(0) > 0 %}
+                {% set capas_totales = capa_total_sensor | int %}
               {% else %}
-                📊 Status: {{ status }}
+                {% set altura_total = states(obj_height_ent) | float(0) %}
+                {% set altura_capa = states(lay_height_ent) | float(0) %}
+                {% if altura_capa > 0 and altura_total > 0 %}
+                  {% set capas_totales = (altura_total / altura_capa) | round(0) %}
+                {% else %}
+                  {% set capas_totales = "Desconocido" %}
+                {% endif %}
               {% endif %}
-            data:
-              url: "{{ dashboard_url }}"
-              clickAction: "{{ dashboard_url }}"
-              group: "{{ notification_group }}"
-              channel: "{{ notification_group }}"
-              tag: "{{ notification_group }}_status"
-              alert_once: true
-              push:
-                interruption-level: passive
 
-      # Handle current status change notifications
+              Capa: {{ capa_actual }} / {{ capas_totales }}
+            data:
+              image: "/api/camera_proxy/{{ json_name(states_trigger.input_camera_entity) }}"
+              clickAction: !input dashboard_url
+
+      # --- TRIGGER DE CAMBIO DE ESTADO (INICIO, PAUSA, FIN, ERROR) ---
       - conditions:
           - condition: template
-            value_template: "{{ trigger.entity_id == current_status_entity }}"
-          - condition: template
-            value_template: "{{ notify_device != '' }}"
-          - condition: template
-            value_template: "{{ enable_status_notifications }}"
-          - condition: template
-            value_template: "{{ states(current_status_entity) not in ['idle', 'printing', 'unknown', 'unavailable'] }}"
+            value_template: "{{ trigger.id == 'status_changed' and enable_status }}"
         sequence:
-          - device_id: !input notify_device
-            domain: mobile_app
-            type: notify
-            title: "Machine Status Update"
-            message: >-
-              {% set status = states(current_status_entity) %}
-              {% set file_name = states(file_name_entity)|default('Unknown file', true) %}
-              {% if status == 'file_transferring' %}
-                📁 File transfer in progress
-              {% elif status == 'exposure_testing' %}
-                🔬 Exposure test running
-              {% elif status == 'devices_testing' %}
-                🔧 Device self-check running
-              {% elif status == 'leveling' %}
-                📐 Bed leveling in progress
-              {% elif status == 'loading_unloading' %}
-                📥📤 Loading/unloading filament
-              {% else %}
-                📊 Machine status: {{ status }}
-              {% endif %}
-            data:
-              url: "{{ dashboard_url }}"
-              clickAction: "{{ dashboard_url }}"
-              group: "{{ notification_group }}"
-              channel: "{{ notification_group }}"
-              tag: "{{ notification_group }}_machine_status"
-              alert_once: true
-              push:
-                interruption-level: passive
+          - choose:
+              # Estado: Completado
+              - conditions:
+                  - condition: template
+                    value_template: "{{ trigger.to_state.state == 'complete' }}"
+                sequence:
+                  - domain: mobile_app
+                    type: notify
+                    device_id: !input notify_device
+                    title: "🎉 ¡Impresión Finalizada!"
+                    message: "La pieza se ha completado con éxito."
+                    data:
+                      image: "/api/camera_proxy/{{ json_name(states_trigger.input_camera_entity) }}"
+                      clickAction: !input dashboard_url
 
-      # Handle critical error status reasons
-      - conditions:
-          - condition: template
-            value_template: "{{ trigger.entity_id == error_status_reason_entity }}"
-          - condition: template
-            value_template: "{{ notify_device != '' }}"
-          - condition: template
-            value_template: >-
-              {{ states(error_status_reason_entity) not in ['ok', 'none', 'unknown', 'unavailable'] }}
-        sequence:
-          - device_id: !input notify_device
-            domain: mobile_app
-            type: notify
-            title: "🚨 Critical Printer Error!"
-            message: >-
-              {% set error = states(error_status_reason_entity) %}
-              {% set file_name = states(file_name_entity)|default('current print', true) %}
-              {% if error == 'filament_runout' %}
-                🧵 Filament runout detected during {{ file_name }}! Please load new filament.
-              {% elif error == 'filament_about_to_runout' %}
-                ⚠️ Filament runout imminent for {{ file_name }}! Please prepare new filament.
-              {% elif error == 'filament_jam' %}
-                🚫 Filament jam detected during {{ file_name }}! Please check the extruder.
-              {% elif error == 'temp_error' %}
-                🌡️ Temperature error detected! Please check nozzle and bed temperatures.
-              {% elif error == 'level_failed' %}
-                📐 Bed leveling failed! Please check the bed leveling system.
-              {% elif error == 'home_failed' or error == 'home_failed_x' or error == 'home_failed_y' or error == 'home_failed_z' %}
-                🏠 Homing failed! Please check the printer axes and endstops.
-              {% elif error == 'bed_adhesion_failed' %}
-                🛏️ Print detached from bed during {{ file_name }}!
-              {% elif error == 'move_abnormal' %}
-                ⚙️ Motor movement abnormality detected!
-              {% elif error == 'file_error' %}
-                📁 Print file error during {{ file_name }}!
-              {% elif error == 'udisk_remove' %}
-                💾 USB drive was removed during printing!
-              {% elif error == 'nozzle_temp_sensor_offline' %}
-                🌡️ Nozzle temperature sensor is offline!
-              {% elif error == 'bed_temp_sensor_offline' %}
-                🌡️ Bed temperature sensor is offline!
-              {% elif error == 'camera_error' %}
-                📷 Camera connection error!
-              {% elif error == 'network_error' %}
-                🌐 Network connection error!
-              {% elif error == 'server_connect_failed' %}
-                🖥️ Server connection failed!
-              {% elif error == 'disconnect_app' %}
-                📱 Controlling app disconnected during print!
-              {% else %}
-                ⚠️ Error: {{ error }}
-              {% endif %}
-            data:
-              image: "{{ ('/api/camera_proxy/' ~ camera_entity) if (camera_entity|default('', true)) != '' else '' }}"
-              url: "{{ dashboard_url }}"
-              clickAction: "{{ dashboard_url }}"
-              group: "{{ notification_group }}"
-              channel: "{{ notification_group }}"
-              tag: "{{ notification_group }}_critical_error"
-              sticky: true
-              alert_once: false
-              push:
-                interruption-level: time-sensitive
+              # Estado: Pausado
+              - conditions:
+                  - condition: template
+                    value_template: "{{ trigger.to_state.state == 'paused' }}"
+                sequence:
+                  - domain: mobile_app
+                    type: notify
+                    device_id: !input notify_device
+                    title: "⏸️ Impresión Pausada"
+                    message: "La impresora se encuentra en estado de pausa."
+                    data:
+                      image: "/api/camera_proxy/{{ json_name(states_trigger.input_camera_entity) }}"
+                      clickAction: !input dashboard_url
+
+              # Estado: Error
+              - conditions:
+                  - condition: template
+                    value_template: "{{ trigger.to_state.state == 'error' }}"
+                sequence:
+                  - domain: mobile_app
+                    type: notify
+                    device_id: !input notify_device
+                    title: "⚠️ Error en la Impresora"
+                    message: "Motivo: {{ states(!input error_status_reason_entity) | default('Desconocido') }}"
+                    data:
+                      image: "/api/camera_proxy/{{ json_name(states_trigger.input_camera_entity) }}"
+                      clickAction: !input dashboard_url
