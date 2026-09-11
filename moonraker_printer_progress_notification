@@ -1,7 +1,7 @@
 blueprint:
-  name: Notificación de Progreso de Impresora Elegoo (v8 - Español Corrección Capas)
-  description: Envía notificaciones enriquecidas sobre el progreso de la impresora, cambios de estado y errores críticos. Incluye cálculo matemático de respaldo para capas totales.
-  author: Daniel Cherubini (Traducido y Corregido)
+  name: Notificación de Progreso de Impresora Elegoo (v8 - Español Fijo)
+  description: Envía notificaciones enriquecidas sobre el progreso de la impresora, cambios de estado y errores críticos. Formato corregido y fallos de capas solucionados.
+  author: Daniel Cherubini (Traducido y Fijo)
   homeassistant:
     min_version: 2024.6.0
   domain: automation
@@ -88,12 +88,10 @@ variables:
   print_status_entity: !input print_status_entity
   current_status_entity: !input current_status_entity
   error_status_reason_entity: !input error_status_reason_entity
-  # Obtener el ID del dispositivo a través de la entidad de progreso
   printer_device: >-
     {{ device_id(percent_complete_entity) }}
   notification_group: >-
     {{ device_attr(printer_device, 'name') | slugify }}
-  # Auto-detección de entidades secundarias del mismo dispositivo
   end_time_entity: >-
     {{ device_entities(printer_device) | select('search', '_end_time') | first }}
   file_name_entity: >-
@@ -102,11 +100,6 @@ variables:
     {{ device_entities(printer_device) | select('search', '_current_layer') | first }}
   total_layers_entity: >-
     {{ device_entities(printer_device) | select('search', '_total_layers') | first }}
-  # Respaldos para el cálculo matemático inteligente de capas si falla el sensor principal
-  object_height_entity: >-
-    {{ device_entities(printer_device) | select('search', '_print_object_height') | first }}
-  layer_height_entity: >-
-    {{ device_entities(printer_device) | select('search', '_layer_height') | first }}
   camera_entity: >-
     {{ (camera_entity_input
         if camera_entity_input != ''
@@ -148,24 +141,26 @@ action:
           - device_id: !input notify_device
             domain: mobile_app
             type: notify
-            title: >-
+            title: "Imprimiendo: {{ states(percent_complete_entity) | int(0) }}%"
+            message: >-
               {% set capa_actual = states(current_layer_entity) | default('?', true) %}
               {% set capa_total_sensor = states(total_layers_entity) %}
+              {% set listado_entidades = device_entities(printer_device) %}
               
               {% if capa_total_sensor not in ['unknown', 'unavailable', 'none'] and capa_total_sensor | int(0) > 0 %}
                 {% set capas_totales = capa_total_sensor | int %}
               {% else %}
-                {% set altura_total = states(object_height_entity) | float(0) %}
-                {% set altura_capa = states(layer_height_entity) | float(0) %}
+                {% set ent_altura_total = listado_entidades | select('search', '_print_object_height') | first %}
+                {% set ent_altura_capa = listado_entidades | select('search', '_layer_height') | first %}
+                {% set altura_total = states(ent_altura_total) | float(0) if ent_altura_total else 0 %}
+                {% set altura_capa = states(ent_altura_capa) | float(0) if ent_altura_capa else 0 %}
                 {% if altura_capa > 0 and altura_total > 0 %}
-                  {% set capas_totales = (altura_total / altura_capa) | round(0) %}
+                  {% set capas_totales = (altura_total / altura_capa) | round(0) | int %}
                 {% else %}
                   {% set capas_totales = "desconocido" %}
                 {% endif %}
               {% endif %}
-              Imprimiendo: {{ states(percent_complete_entity) | int(0) }}%
               Capa: {{ capa_actual }}/{{ capas_totales }}
-            message: "{{ states(file_name_entity)|default('Archivo desconocido', true) }}"
             data:
               chronometer: true
               when: "{{ as_timestamp(states(end_time_entity))|int if end_time_entity != none and states(end_time_entity) not in ['unknown', 'unavailable'] else 0 }}"
