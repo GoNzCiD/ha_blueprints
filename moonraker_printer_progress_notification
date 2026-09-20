@@ -93,7 +93,7 @@ variables:
   end_time_entity: >-
     {{ device_entities(printer_device) | select('search', '_end_time') | first }}
   file_name_entity: >-
-    {{ device_entities(printer_device) | select('search', '_file_name') | first }}
+    {{ device_entities(printer_device) | select('search', '_filename') | first }}
   current_layer_entity: >-
     {{ device_entities(printer_device) | select('search', '_current_layer') | first }}
   total_layers_entity: >-
