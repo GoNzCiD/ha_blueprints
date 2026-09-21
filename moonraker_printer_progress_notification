@@ -71,7 +71,8 @@ blueprint:
       selector:
         boolean:
 
-mode: single
+mode: parallel
+max: 10
 max_exceeded: silent
 
 variables:
@@ -92,8 +93,10 @@ variables:
     
   end_time_entity: >-
     {{ device_entities(printer_device) | select('search', '_end_time') | first }}
+  
   file_name_entity: >-
-    {{ device_entities(printer_device) | select('search', '_filename') | first }}
+    {{ device_entities(printer_device) | select('search', '_filename') | first | default(device_entities(printer_device) | select('search', '_file_name') | first, true) }}
+    
   current_layer_entity: >-
     {{ device_entities(printer_device) | select('search', '_current_layer') | first }}
   total_layers_entity: >-
@@ -122,7 +125,7 @@ condition: []
 
 action:
   - choose:
-      # --- NOTIFICACIÓN DE PROGRESO DE IMPRESIÓN (Filtro de enteros de 1 en 1 %) ---
+      # --- NOTIFICACIÓN DE PROGRESO DE IMPRESIÓN ---
       - conditions:
           - condition: template
             value_template: "{{ trigger.entity_id == percent_complete_entity }}"
@@ -226,13 +229,24 @@ action:
             value_template: >-
               {{ states(print_status_entity) not in ['complete', 'stopped', 'stopping', 'idle', 'unknown', 'unavailable'] }}
         sequence:
+          # Ampliado a 20 segundos para garantizar la sincronización en redes con retraso
+          - choice:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ states(print_status_entity) == 'printing' }}"
+                sequence:
+                  - wait_template: "{{ file_name_entity != none and states(file_name_entity) not in ['unknown', 'unavailable', 'none', ''] }}"
+                    timeout: "00:00:20"
+                    continue_on_timeout: true
+          
           - device_id: !input notify_device
             domain: mobile_app
             type: notify
             title: "Actualización del estado de la impresora"
             message: >-
               {% set status = states(print_status_entity) %}
-              {% set file_name = states(file_name_entity)|default('Archivo desconocido', true) %}
+              {% set raw_file = states(file_name_entity) %}
+              {% set file_name = raw_file if raw_file not in ['unknown', 'unavailable', 'none', ''] else 'un archivo nuevo' %}
               {% if status == 'homing' %}
                 🏠 La impresora está realizando el home
               {% elif status == 'printing' %}
@@ -283,7 +297,6 @@ action:
             title: "Actualización del estado de la máquina"
             message: >-
               {% set status = states(current_status_entity) %}
-              {% set file_name = states(file_name_entity)|default('Archivo desconocido', true) %}
               {% if status == 'file_transferring' %}
                 📁 Transferencia de archivo en progreso
               {% elif status == 'exposure_testing' %}
@@ -317,13 +330,17 @@ action:
             value_template: >-
               {{ states(error_status_reason_entity) not in ['ok', 'none', 'unknown', 'unavailable'] }}
         sequence:
+          - wait_template: "{{ file_name_entity != none and states(file_name_entity) not in ['unknown', 'unavailable', 'none', ''] }}"
+            timeout: "00:00:20"
+            continue_on_timeout: true
           - device_id: !input notify_device
             domain: mobile_app
             type: notify
             title: "🚨 ¡Error Crítico en la Impresora!"
             message: >-
               {% set error = states(error_status_reason_entity) %}
-              {% set file_name = states(file_name_entity)|default('la impresión actual', true) %}
+              {% set raw_file = states(file_name_entity) %}
+              {% set file_name = raw_file if raw_file not in ['unknown', 'unavailable', 'none', ''] else 'la impresión actual' %}
               {% if error == 'filament_runout' %}
                 🧵 ¡Se ha agotado el filamento durante {{ file_name }}! Por favor, carga nuevo filamento.
               {% elif error == 'filament_about_to_runout' %}
