@@ -1,7 +1,7 @@
 blueprint:
   name: Notificación de Progreso de Impresora Elegoo
   description: Envía notificaciones enriquecidas sobre el progreso de la impresora, cambios de estado y errores críticos. Filtra decimales del progreso y corrige el salto de línea y cálculo de capas totales.
-  author: Daniel Cherubini (Traducido y Corregido de forma Definitiva)
+  author: Daniel Cherubini (traducido y modificado para su uso con moonraker)
   homeassistant:
     min_version: 2024.6.0
   domain: automation
