@@ -229,15 +229,12 @@ action:
             value_template: >-
               {{ states(print_status_entity) not in ['complete', 'stopped', 'stopping', 'idle', 'unknown', 'unavailable'] }}
         sequence:
-          # Ampliado a 20 segundos para garantizar la sincronización en redes con retraso
-          - choice:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ states(print_status_entity) == 'printing' }}"
-                sequence:
-                  - wait_template: "{{ file_name_entity != none and states(file_name_entity) not in ['unknown', 'unavailable', 'none', ''] }}"
-                    timeout: "00:00:20"
-                    continue_on_timeout: true
+          # Espera inteligente de hasta 20 segundos a que cargue el nombre solo si el estado es 'printing'
+          - condition: template
+            value_template: "{{ states(print_status_entity) == 'printing' }}"
+          - wait_template: "{{ file_name_entity != none and states(file_name_entity) not in ['unknown', 'unavailable', 'none', ''] }}"
+            timeout: "00:00:20"
+            continue_on_timeout: true
           
           - device_id: !input notify_device
             domain: mobile_app
@@ -330,9 +327,11 @@ action:
             value_template: >-
               {{ states(error_status_reason_entity) not in ['ok', 'none', 'unknown', 'unavailable'] }}
         sequence:
+          # Espera de hasta 5 segundos por si el error ocurre justo al arrancar la pieza
           - wait_template: "{{ file_name_entity != none and states(file_name_entity) not in ['unknown', 'unavailable', 'none', ''] }}"
-            timeout: "00:00:20"
+            timeout: "00:00:05"
             continue_on_timeout: true
+
           - device_id: !input notify_device
             domain: mobile_app
             type: notify
@@ -348,7 +347,7 @@ action:
               {% elif error == 'filament_jam' %}
                 🚫 ¡Atasco de filamento detectado durante {{ file_name }}! Comprueba el extrusor.
               {% elif error == 'temp_error' %}
-                🌡️ ¡Error de temperatura detectado! Por favor, revisa las temperaturas de la boquilla y de la cama.
+                🌡️ ¡Error de temperatura detectado! Por favor, revisa las temperaturas de la boquilla and de la cama.
               {% elif error == 'level_failed' %}
                 📐 ¡Falló la nivelación de la cama! Por favor, comprueba el sistema de nivelación.
               {% elif error == 'home_failed' or error == 'home_failed_x' or error == 'home_failed_y' or error == 'home_failed_z' %}
