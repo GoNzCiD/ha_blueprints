@@ -325,7 +325,7 @@ action:
             value_template: "{{ notify_device != '' }}"
           - condition: template
             value_template: >-
-              {{ states(error_status_reason_entity) not in ['ok', 'none', 'unknown', 'unavailable'] }}
+              {{ states(error_status_reason_entity) not in ['ok', 'none', 'unknown', 'unavailable', 'ready', 'idle', 'printer is ready'] }}
         sequence:
           # Espera de hasta 5 segundos por si el error ocurre justo al arrancar la pieza
           - wait_template: "{{ file_name_entity != none and states(file_name_entity) not in ['unknown', 'unavailable', 'none', ''] }}"
