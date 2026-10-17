@@ -325,7 +325,8 @@ action:
             value_template: "{{ notify_device != '' }}"
           - condition: template
             value_template: >-
-              {{ states(error_status_reason_entity) not in ['ok', 'none', 'unknown', 'unavailable', 'ready', 'idle', 'printer is ready'] }}
+              {% set error = states(error_status_reason_entity) | lower | trim %}
+              {{ error not in ['ok', 'none', 'unknown', 'unavailable', 'ready', 'idle', 'printer is ready', ''] }}
         sequence:
           # Espera de hasta 5 segundos por si el error ocurre justo al arrancar la pieza
           - wait_template: "{{ file_name_entity != none and states(file_name_entity) not in ['unknown', 'unavailable', 'none', ''] }}"
@@ -337,7 +338,7 @@ action:
             type: notify
             title: "🚨 ¡Error Crítico en la Impresora!"
             message: >-
-              {% set error = states(error_status_reason_entity) %}
+              {% set error = states(error_status_reason_entity) | lower | trim %}
               {% set raw_file = states(file_name_entity) %}
               {% set file_name = raw_file if raw_file not in ['unknown', 'unavailable', 'none', ''] else 'la impresión actual' %}
               {% if error == 'filament_runout' %}
@@ -373,7 +374,7 @@ action:
               {% elif error == 'disconnect_app' %}
                 📱 ¡La aplicación de control se desconectó durante la impresión!
               {% else %}
-                ⚠️ Error: {{ error }}
+                ⚠️ Error: {{ states(error_status_reason_entity) }}
               {% endif %}
             data:
               image: "{{ ('/api/camera_proxy/' ~ camera_entity) if (camera_entity|default('', true)) != '' else '' }}"
